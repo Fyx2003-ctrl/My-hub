@@ -1,0 +1,30 @@
+自己写的一个普普通通的爬书小程序，是我入门python爬虫的第一次尝试，记录一下，还是小有激动滴
+import requests
+from bs4 import BeautifulSoup
+if __name__ == "__main__":
+    #指定爬取的url
+    url='https://www.shicimingjv.com/bookindex/22.html'
+    #UA伪装
+    headers = {
+        'User-Agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0'
+    }
+    #获取响应数据
+    response=requests.get(url=url,headers=headers)
+    page_text = response.text
+    #首页解析章节名
+    soup = BeautifulSoup(page_text,'lxml')
+    #定位提取li标签下的数据
+    li_list = soup.select('.book-tags > li')
+    fp =open('./sanguo_myself.txt','w')s
+    for li in li_list:
+        title = li.a.string
+        detail_url = li.a['href']
+        #对详情页发送请求，获取章节内容
+        detail_page_contend = requests.get(url=detail_url,headers=headers).text
+        #文本解析，提取出详情页面下的文本数据
+        detail_soup = BeautifulSoup(detail_page_contend,'lxml')
+        div_tag = detail_soup.find('div',class_='entry-content clearfix')
+        #存储文本内容
+        content = div_tag.get_text(strip=True, separator='\n')#strip去除空格，seperator用换行符进行分割
+        fp.write(title+':'+content+'\n')
+        print(title,"success")
