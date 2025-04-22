@@ -1,0 +1,136 @@
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# 请求头配置
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+}
+
+
+def get_page(url, retry_times=3):
+    """
+    获取页面内容，带重试机制
+    """
+    for i in range(retry_times):
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                return response.content
+            else:
+                logger.warning(f"请求失败，状态码: {response.status_code}，URL: {url}")
+        except Exception as e:
+            logger.error(f"请求异常: {str(e)}，URL: {url}")
+            if i < retry_times - 1:  # 如果不是最后一次重试
+                time.sleep(random.uniform(1, 3))  # 随机延迟
+                continue
+        return None
+
+
+def extract_details(li_element):
+    """
+    从列表元素中提取电影详情
+    """
+    try:
+        # 提取标题 - 适应Top250页面的结构
+        title_node = li_element.xpath('.//span[@class="title"][1]/text()')
+        title = title_node[0].strip() if title_node else None
+
+        # 提取URL - 适应Top250页面的结构
+        url_node = li_element.xpath('.//div[@class="hd"]/a/@href')
+        detail_url = url_node[0] if url_node else None
+
+        if title and detail_url:
+            return title, detail_url
+        return None
+    except Exception as e:
+        logger.error(f"提取详情失败: {str(e)}")
+        return None
+
+
+def process_movie(li_element):
+    """
+    处理单个电影元素
+    """
+    try:
+        result = extract_details(li_element)
+        if result:
+            title, url = result
+            logger.info(f"成功处理电影: {title}")
+            return result
+        return None
+    except Exception as e:
+        logger.error(f"处理电影失败: {str(e)}")
+        return None
+
+
+def optimize_crawl(base_url):
+    """
+    优化的爬虫主函数
+    """
+    try:
+        # 获取主页面
+        content = get_page(base_url)
+        if not content:
+            raise ValueError(f"无法获取页面内容: {base_url}")
+
+        # 解析HTML
+        html = etree.HTML(content)
+
+        # 使用正确的XPath路径
+        li_elements = html.xpath('//*[@id="content"]/div/div[1]/ol/li')
+
+        # 添加调试信息
+        logger.info(f"页面内容长度: {len(content)}")
+        logger.info(f"找到的电影元素数量: {len(li_elements)}")
+
+        if not li_elements:
+            # 如果没有找到元素，输出页面内容片段以供调试
+            logger.warning("未找到电影列表元素")
+            logger.debug(f"页面内容片段: {content[:500]}")  # 只显示前500字符
+            return []
+
+        # 使用线程池处理
+        results = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_li = {executor.submit(process_movie, li): li for li in li_elements}
+
+            for future in as_completed(future_to_li):
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    logger.error(f"处理电影信息失败: {str(e)}")
+
+        return results
+
+    except Exception as e:
+        logger.error(f"爬虫运行失败: {str(e)}")
+        return []
+
+
+def main():
+    with open('./douban.html', 'a', encoding='utf-8') as fp:
+        # 如果是第一次写入，可以写入HTML头部
+        fp.write('<html><head><meta charset="utf-8"></head><body>\n')
+
+    for page in range(1, 11):
+        base_url = f'https://movie.douban.com/top250?start={(page - 1) * 25}'
+        movies = optimize_crawl(base_url)
+
+        with open('./douban.html', 'a', encoding='utf-8') as fp:
+            for title, url in movies:
+                fp.write(f'<a href="{url}" target="_blank">{title}</a><br>\n')
+
+    with open('./douban.html', 'a', encoding='utf-8') as fp:
+        fp.write('</body></html>\n')
+
+
+if __name__ == "__main__":
+    main()
